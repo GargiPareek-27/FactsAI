@@ -2,7 +2,7 @@
 ## Streamlit Application
 
 <p align="center">
-<img src="streamlit_demo.png" width="900">
+<img src="assets/streamlit_demo.png" width="900">
 </p>
 
 
@@ -82,8 +82,8 @@ The following metrics were achieved after training on a merged dataset of ISOT, 
 | **F1-Score**  | **97.23%** |
 
 <p align="center">
-    <img src="classification_report.png" width="45%">
-    <img src="roc_curve.png" width="39%">
+    <img src="assets/classification_report.png" width="45%">
+    <img src="assets/roc_curve.png" width="39%">
 </p>
 
 > **Note:** These results were generated using the `src/evaluate.py` script on the held-out test set.

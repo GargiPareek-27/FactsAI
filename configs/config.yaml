@@ -1,0 +1,33 @@
+# configs/config.yaml
+# Data config
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  max_length: 512
+  clean_stopwords: true
+
+# Model config
+model:
+  model_name: "roberta-base"
+  num_labels: 2
+  lstm_hidden_size: 256
+  lstm_layers: 1
+  dropout: 0.3
+  use_attention: true
+
+# Training config
+training:
+  epochs: 10
+  batch_size: 16
+  eval_batch_size: 32
+  lr: 2.0e-5
+  warmup_ratio: 0.1
+  clip_grad_norm: 1.0
+  mixed_precision: true
+  early_stopping_patience: 3
+  checkpoint_dir: "models/checkpoints"
+  final_model_dir: "models/final_hybrid_roberta_bilstm"
+
+# Logging / misc
+logging:
+  log_file: "train.log"

@@ -1,0 +1,15 @@
+# Python dependencies for fake-news-detection project
+torch>=2.0.0
+transformers>=4.30.0
+scikit-learn>=1.3.0
+pandas>=2.0.0
+numpy>=1.24.0
+matplotlib>=3.7.0
+seaborn>=0.13.0
+streamlit>=1.30.0
+tqdm>=4.66.0
+nltk>=3.8.0
+pyyaml>=6.0.0
+
+# Optional extras (for Colab)
+datasets>=2.14.0  # for Hugging Face datasets

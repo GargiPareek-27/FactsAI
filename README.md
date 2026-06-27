@@ -95,7 +95,7 @@ The following metrics were achieved after training on a merged dataset of ISOT, 
 1.  **Clone & Setup Environment**
     
     ``` bash
-    git clone [link removed]
+    git clone #link
     cd FactsAI
     python -m venv venv
     source venv/bin/activate  # Windows: venv\Scripts\activate

@@ -70,25 +70,6 @@ FactsAI/
 
 -----
 
-### 🧪 Experimental Results
-
-The following metrics were achieved after training on a merged dataset of ISOT, LIAR, and Kaggle sources:
-
-| Metric        | Score      |
-| :------------ | :--------: |
-| **Accuracy**  | **97.25%** |
-| **Precision** | **97.66%** |
-| **Recall**    | **96.81%** |
-| **F1-Score**  | **97.23%** |
-
-<p align="center">
-    <img src="assets/classification_report.png" width="45%">
-    <img src="assets/roc_curve.png" width="39%">
-</p>
-
-> **Note:** These results were generated using the `src/evaluate.py` script on the held-out test set.
-
------
 
 ### ⚙️ Installation & Usage
 

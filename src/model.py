@@ -31,7 +31,12 @@ class RoBERTaBiLSTM(nn.Module):
         self.roberta_config = RobertaConfig.from_pretrained(model_name)
         self.roberta = RobertaModel.from_pretrained(model_name)
 
-        # Freeze RoBERTa base
+        # Fine-tune RoBERTa end-to-end (NOT frozen). An earlier version of
+        # this comment said "Freeze RoBERTa base" while the code below set
+        # requires_grad_(True) — that was a stale/incorrect comment, not a
+        # frozen encoder. Full fine-tuning is the actual, intended behavior.
+        # Set requires_grad_(False) here instead if you want a frozen,
+        # feature-extraction-only encoder.
         self.roberta.requires_grad_(True)
 
         # BiLSTM on top of RoBERTa last hidden state

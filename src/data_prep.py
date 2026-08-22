@@ -78,11 +78,33 @@ def load_kaggle_fake_news(
 def load_liar_dataset(
     raw_dir: str,
 ) -> pd.DataFrame:
-    """Load LIAR dataset (statements with labels)."""
+    """Load LIAR dataset (statements with 6-way truthfulness labels),
+    binarized to match the real=0/fake=1 convention used by ISOT/Kaggle.
+
+    IMPORTANT — bug fixed here: LIAR's raw label column uses six
+    lowercase truthfulness levels (pants-fire, false, barely-true,
+    half-true, mostly-true, true). A previous version of this function
+    mapped {"TRUE": 0, "FALSE": 1, "NONE": 0} — none of those keys match
+    LIAR's actual label strings, so every row silently fell through to
+    `.fillna(0)` and every single LIAR example was mapped to label 0
+    (real), regardless of its actual truthfulness rating. If LIAR data
+    was ever merged into a real training run before this fix, that
+    portion of the training set was mislabeled and would have taught the
+    model nothing correct about those examples.
+
+    Binarization used here (a documented modeling choice — reasonable
+    alternatives exist): {pants-fire, false, barely-true} -> fake (1),
+    {half-true, mostly-true, true} -> real (0). Unknown label strings
+    raise an error instead of silently defaulting, so a future dataset-
+    format change fails loudly rather than quietly mislabeling data again.
+    """
     data_dir = os.path.join(raw_dir, "liar")
     train_path = os.path.join(data_dir, "train.tsv")
     test_path = os.path.join(data_dir, "test.tsv")
     val_path = os.path.join(data_dir, "val.tsv")
+
+    fake_labels = {"pants-fire", "false", "barely-true"}
+    real_labels = {"half-true", "mostly-true", "true"}
 
     dfs = []
     for path in [train_path, test_path, val_path]:
@@ -93,9 +115,20 @@ def load_liar_dataset(
                 2,  # statement text
                 1,  # label
             ]].rename(columns={2: "content", 1: "label"})
-            # Convert string labels to 1/0 (fake vs not‑fake)
-            label_map = {"TRUE": 0, "FALSE": 1, "NONE": 0}
-            df["label"] = df["label"].map(label_map).fillna(0)
+
+            df["label"] = df["label"].astype(str).str.strip().str.lower()
+
+            unmapped = set(df["label"].unique()) - fake_labels - real_labels
+            if unmapped:
+                raise ValueError(
+                    f"Unexpected LIAR label value(s) found: {sorted(unmapped)}. "
+                    "Expected one of: pants-fire, false, barely-true, "
+                    "half-true, mostly-true, true. Refusing to silently "
+                    "default these to a guessed label — update fake_labels/"
+                    "real_labels above if the dataset format has changed."
+                )
+
+            df["label"] = df["label"].apply(lambda l: 1 if l in fake_labels else 0)
             dfs.append(df)
 
     if not dfs:
@@ -155,7 +188,12 @@ def merge_datasets(
 def preprocess_and_split(
     raw_dir: str,
     processed_dir: str,
-    clean_stopwords: bool = True,
+    clean_stopwords: bool = False,
+    # Default is False, not True: RoBERTa's subword tokenizer and
+    # self-attention rely on natural sentence structure, and removing
+    # stopwords (a bag-of-words-era technique) measurably degrades its
+    # contextual embeddings rather than improving them. Kept configurable
+    # for anyone who wants to run the comparison explicitly.
 ) -> None:
     """Main pipeline: load, clean, merge, split, and save."""
     os.makedirs(processed_dir, exist_ok=True)

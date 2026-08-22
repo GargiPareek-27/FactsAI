@@ -4,7 +4,14 @@ data:
   raw_dir: "data/raw"
   processed_dir: "data/processed"
   max_length: 512
-  clean_stopwords: true
+  # Default changed from true to false: RoBERTa is a subword-tokenized
+  # transformer that relies on natural sentence structure and function
+  # words for its contextual embeddings. Stripping stopwords is a
+  # bag-of-words-era technique that actively degrades transformer input
+  # quality rather than helping it — it's left available (see
+  # src/data_prep.py's remove_stopwords) for anyone who wants to compare,
+  # but should not be the default preprocessing step for this model.
+  clean_stopwords: false
 
 # Model config
 model:

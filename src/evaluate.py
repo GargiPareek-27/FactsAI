@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from src.model import RoBERTaBiLSTM
-from src.data_prep import preprocess_and_split
 from src.utils import seed_everything, load_dataset, NewsDataset
 from torch.utils.data import DataLoader
 from transformers import RobertaTokenizerFast
@@ -38,11 +37,14 @@ def evaluate_model(
     batch_size: int = 16,
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
 ) -> dict:
+    seed_everything(42)
     model, tokenizer = load_model_and_tokenizer(model_dir, tokenizer_name)
     model.to(device)
     model.eval()
 
-    test_df = pd.read_csv(test_csv)
+    # load_dataset validates that 'content'/'label' columns exist rather
+    # than assuming the CSV schema — see src/utils.py.
+    test_df = load_dataset(test_csv)
     test_dataset = NewsDataset(test_df, tokenizer, max_length)
     loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 

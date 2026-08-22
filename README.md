@@ -119,14 +119,43 @@ FactsAI/
 
 -----
 
-### ⚠️ Limitations & Ethical Statement
+### ⚠️ Known Limitations
 
-FactsAI is designed for research purposes and has the following known limitations:
+This is a learning/research project, and the following limitations are
+disclosed deliberately rather than glossed over:
 
-  - **Dataset Bias**: Performance is contingent on the domains present in the training data (ISOT, LIAR, Kaggle).
-  - **Domain Shift**: Accuracy may degrade on unseen news domains or evolving misinformation tactics.
-  - **Language**: Currently optimized for English-only text.
-  - **Human-in-the-Loop**: This tool is an aid and should not replace professional fact-checking organizations.
+- **Reported metrics need re-validation.** The accuracy/F1/AUC numbers in
+  `assets/classification_report.png` were produced on a 690-example,
+  perfectly class-balanced test split (345 real / 345 fake). A merged
+  ISOT + LIAR + Kaggle dataset should be much larger and not perfectly
+  balanced — this looks like a run on a small subsample rather than the
+  full described pipeline, and should be re-run and reported honestly
+  once retraining happens with the fixes below.
+- **ISOT dataset leakage risk.** The ISOT real/fake split is known in the
+  NLP literature to carry systematic formatting differences (e.g. wire-
+  service dateline conventions) between the real and fake subsets,
+  independent of actual content truthfulness — models can hit high
+  accuracy on ISOT by picking up on these superficial patterns rather
+  than genuine deception cues. This hasn't been specifically controlled
+  for here (no dateline/source-tag stripping is implemented in
+  `clean_text`), so the current numbers should be read with that caveat
+  until validated against an out-of-distribution test set.
+- **Fixed since the last training run — a LIAR label-mapping bug.**
+  `src/data_prep.py`'s LIAR loader previously mapped label strings that
+  never matched LIAR's actual format (`pants-fire`/`false`/`barely-true`/
+  `half-true`/`mostly-true`/`true`, lowercase, six-way), so every LIAR
+  row silently defaulted to label 0 ("real"). This is now fixed with an
+  explicit binarization and a hard error on unrecognized labels — but it
+  means **any model trained before this fix should be retrained**, since
+  the LIAR portion of its training data was mislabeled.
+- **Stopword removal default changed.** `clean_stopwords` now defaults to
+  `false` (previously `true`). Removing stopwords before a RoBERTa
+  subword tokenizer is a bag-of-words-era technique that degrades
+  contextual embeddings rather than helping — any prior results were
+  produced with this on by default.
+- **Language:** English-only.
+- **Not a fact-checking replacement.** This is a pattern-classification
+  aid, not a source of ground truth, and shouldn't be treated as one.
 
 -----
 

@@ -104,12 +104,18 @@ class RoBERTaBiLSTM(nn.Module):
         context_vector = self.dropout_layer(context_vector)
         logits = self.classifier(context_vector)
 
-        # Fixed: Return a dictionary matching your train.py loop requirements
+        # Always return a dict so every caller (train.py, evaluate.py,
+        # predict.py, app.py) can uniformly do outputs["logits"].
+        # Previously forward() returned a plain tensor when labels were
+        # absent and a dict when they were present — evaluate.py and
+        # predict.py both called the model without labels and then did
+        # outputs["logits"], which crashes on a plain tensor. app.py
+        # worked around it with an isinstance check; now that check is
+        # unnecessary but harmless.
+        result = {"logits": logits}
         if labels is not None:
-            loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
-            return {"loss": loss, "logits": logits}
-
-        return logits
+            result["loss"] = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
+        return result
 
     def save_pretrained(self, save_directory: str):
         """Save model weights, the RoBERTa sub-config, and this class's own

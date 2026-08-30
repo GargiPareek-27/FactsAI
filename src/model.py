@@ -1,5 +1,6 @@
 """Hybrid RoBERTa + BiLSTM model for fake news detection."""
 
+import json
 import os
 import torch
 import torch.nn as nn
@@ -81,11 +82,23 @@ class RoBERTaBiLSTM(nn.Module):
         lstm_output, _ = self.lstm(sequence_output)
 
         if self.use_attention:
-            att_scores = self.attention_weights(lstm_output)  
-            att_weights = torch.softmax(att_scores, dim=1)     
-            context_vector = torch.sum(lstm_output * att_weights, dim=1)  
+            att_scores = self.attention_weights(lstm_output)  # (B, T, 1)
+
+            # Mask out padding positions before the softmax. Without this,
+            # padded timesteps (attention_mask == 0) can still receive
+            # nonzero attention weight and dilute the context vector,
+            # especially for short inputs with heavy padding.
+            mask = attention_mask.unsqueeze(-1).to(dtype=att_scores.dtype)  # (B, T, 1)
+            att_scores = att_scores.masked_fill(mask == 0, float("-inf"))
+
+            att_weights = torch.softmax(att_scores, dim=1)
+            context_vector = torch.sum(lstm_output * att_weights, dim=1)
         else:
-            context_vector = torch.mean(lstm_output, dim=1)
+            # Mean over real tokens only, excluding padding.
+            mask = attention_mask.unsqueeze(-1).to(dtype=lstm_output.dtype)
+            summed = torch.sum(lstm_output * mask, dim=1)
+            counts = mask.sum(dim=1).clamp(min=1e-9)
+            context_vector = summed / counts
 
         # Apply dropout and classification head
         context_vector = self.dropout_layer(context_vector)
@@ -99,7 +112,53 @@ class RoBERTaBiLSTM(nn.Module):
         return logits
 
     def save_pretrained(self, save_directory: str):
-        """Save both model weights and configurations."""
+        """Save model weights, the RoBERTa sub-config, and this class's own
+        constructor arguments (lstm_hidden_size, lstm_layers, dropout,
+        use_attention, num_labels) so from_pretrained can rebuild an
+        identical architecture before loading weights into it."""
         os.makedirs(save_directory, exist_ok=True)
         torch.save(self.state_dict(), os.path.join(save_directory, "pytorch_model.bin"))
         self.roberta_config.save_pretrained(save_directory)
+
+        hybrid_config = {
+            "model_name": self.model_name,
+            "num_labels": self.num_labels,
+            "lstm_hidden_size": self.lstm_hidden_size,
+            "lstm_layers": self.lstm_layers,
+            "dropout": self.dropout,
+            "use_attention": self.use_attention,
+        }
+        with open(os.path.join(save_directory, "hybrid_config.json"), "w") as f:
+            json.dump(hybrid_config, f, indent=2)
+
+    @classmethod
+    def from_pretrained(cls, load_directory: str) -> "RoBERTaBiLSTM":
+        """Rebuild the exact architecture used at save time (from
+        hybrid_config.json) and load the saved weights into it.
+
+        This was previously missing entirely — evaluate.py and predict.py
+        both called RoBERTaBiLSTM.from_pretrained(...), which doesn't exist
+        on a plain nn.Module, so both scripts crashed immediately on
+        import/use. This closes that gap.
+        """
+        config_path = os.path.join(load_directory, "hybrid_config.json")
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                hybrid_config = json.load(f)
+        else:
+            # Backward-compatible fallback for checkpoints saved before
+            # hybrid_config.json existed: assume the defaults train.py used.
+            hybrid_config = {
+                "model_name": "roberta-base",
+                "num_labels": 2,
+                "lstm_hidden_size": 256,
+                "lstm_layers": 1,
+                "dropout": 0.3,
+                "use_attention": True,
+            }
+
+        model = cls(**hybrid_config)
+        state_dict_path = os.path.join(load_directory, "pytorch_model.bin")
+        state_dict = torch.load(state_dict_path, map_location="cpu")
+        model.load_state_dict(state_dict)
+        return model

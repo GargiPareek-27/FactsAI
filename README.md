@@ -76,7 +76,7 @@ FactsAI/
 1.  **Clone & Setup Environment**
     
     ``` bash
-    git clone #link
+    git clone https://github.com/GargiPareek-27/FactsAI.git
     cd FactsAI
     python -m venv venv
     source venv/bin/activate  # Windows: venv\Scripts\activate

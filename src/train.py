@@ -29,7 +29,7 @@ def load_config(config_path: str = "configs/config.yaml") -> dict:
         return yaml.safe_load(f) or {}
 
 
-def train_epoch(model, dataloader, optimizer, scheduler, device, use_amp: bool):
+def train_epoch(model, dataloader, optimizer, scheduler, device, use_amp: bool, clip_grad_norm: float = 1.0):
     model.train()
     total_loss = 0
 
@@ -48,7 +48,7 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, use_amp: bool):
             loss = outputs["loss"]
 
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad_norm)
 
         optimizer.step()
         scheduler.step()
@@ -158,7 +158,7 @@ def train(
 
     for epoch in range(epochs):
         logger.info(f"Epoch {epoch + 1}/{epochs}")
-        train_loss = train_epoch(model, train_loader, optimizer, scheduler, device, use_amp)
+        train_loss = train_epoch(model, train_loader, optimizer, scheduler, device, use_amp, clip_grad_norm)
         val_loss, val_acc = evaluate_val(model, val_loader, device)
 
         logger.info(f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}")

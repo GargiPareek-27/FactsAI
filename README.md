@@ -12,7 +12,7 @@
 
 ### 📖 Project Motivation
 
-Misinformation spreads rapidly across digital platforms, making automated fact verification increasingly important. Classical machine learning models often struggle to capture contextual semantics, while transformer models alone may not fully exploit sequential dependencies. **FactsAI** addresses these challenges by combining RoBERTa’s deep contextual embeddings with a BiLSTM’s ability to model narrative flow, ensuring a high-resolution analysis of news content.
+Misinformation spreads rapidly across digital platforms, making automated fact verification increasingly important. Classical machine learning models often struggle to capture contextual semantics, while transformer models alone may not fully exploit sequential dependencies. **FactsAI** addresses these challenges by combining RoBERTa's deep contextual embeddings with a BiLSTM's ability to model narrative flow, ensuring a high-resolution analysis of news content.
 
 -----
 
@@ -20,7 +20,7 @@ Misinformation spreads rapidly across digital platforms, making automated fact v
 
 #### **Conceptual Workflow**
 
-`News Article` → `Cleaning` → `Tokenizer` → `RoBERTa Encoder` → `BiLSTM` → `Attention` → `Classifier` → `Prediction`
+`News Article` → `Cleaning` → `Deduplication` → `Tokenizer` → `RoBERTa Encoder` → `BiLSTM` → `Attention` → `Classifier` → `Prediction`
 
 #### **Technical Specification**
 
@@ -28,7 +28,7 @@ The system implements a sophisticated hybrid architecture defined in `src/model.
 
 1.  **RoBERTa-Base Encoder**: Processes raw tokens into 768-dimensional contextual embeddings.
 2.  **Bidirectional LSTM (BiLSTM)**: Processes these embeddings from both directions to capture long-range sequential dependencies.
-3.  **Additive Attention Layer**: Learns to assign importance weights to specific words or phrases most indicative of "fake" or "real" news.
+3.  **Additive Attention Layer**: Learns to assign importance weights to specific words or phrases most indicative of "fake" or "real" news, with padded positions masked out of the softmax so they contribute zero weight.
 4.  **Classification Head**: A dense layer with dropout regularization for final binary classification.
 
 #### **Mathematical Formulation**
@@ -46,64 +46,77 @@ The system implements a sophisticated hybrid architecture defined in `src/model.
 ``` text
 FactsAI/
 ├── app/
-│   └── app.py              # Streamlit Web Interface
-├── assets/                 # Architecture diagrams and screenshots
+│   └── app.py                    # Streamlit Web Interface
+├── assets/                       # Architecture diagrams and screenshots
 ├── configs/
-│   └── config.yaml         # Training & Model Hyperparameters
+│   └── config.yaml               # Training & Model Hyperparameters
 ├── data/
-│   ├── raw/                # Source datasets (ISOT, LIAR, Kaggle)
-│   └── processed/          # Cleaned CSV splits
+│   ├── raw/                      # Source datasets (ISOT, LIAR, Kaggle)
+│   └── processed/                # Cleaned, deduplicated CSV splits + integrity logs
 ├── models/
 │   └── final_hybrid_roberta_bilstm/       # Saved PyTorch model checkpoints
 ├── notebooks/
-│   └── EDA.ipynb           # Exploratory Data Analysis
+│   └── EDA.ipynb                 # Exploratory Data Analysis
+├── results/                      # Generated metrics, reports, and plots (not committed)
 ├── src/
-│   ├── model.py            # Hybrid Architecture Definition
-│   ├── train.py            # GPU-optimized Training Pipeline
-│   ├── evaluate.py         # Performance Metrics & Visualization
-│   ├── predict.py          # Inference Module
-│   └── data_prep.py        # Preprocessing & Cleaning
-├── requirements.txt        # Dependency Management
-└── .gitignore              # Repository safety
-
+│   ├── model.py                  # Hybrid Architecture Definition
+│   ├── train.py                  # GPU-optimized Training Pipeline
+│   ├── evaluate.py               # Performance Metrics & Visualization
+│   ├── predict.py                # Inference Module
+│   ├── data_prep.py              # Preprocessing, Deduplication & Splitting
+│   ├── audit_data_integrity.py   # Automated split/leakage audit
+│   └── test_data_integrity.py    # Fast tests (no training required)
+├── requirements.txt               # Dependency Management
+└── .gitignore                     # Repository safety
 ```
 
 -----
 
-
 ### ⚙️ Installation & Usage
 
 1.  **Clone & Setup Environment**
-    
+
     ``` bash
     git clone https://github.com/GargiPareek-27/FactsAI.git
     cd FactsAI
     python -m venv venv
     source venv/bin/activate  # Windows: venv\Scripts\activate
     pip install -r requirements.txt
-    
     ```
 
 2.  **Data Preparation**
-    Place your raw data in `data/raw/` and run the pipeline:
-    
+    Place your raw data in `data/raw/` and run the pipeline. This step deduplicates and resolves label conflicts before creating the train/val/test split — see [Data Integrity & Evaluation](#-data-integrity--evaluation) below.
+
     ``` bash
-    python src/data_prep.py
-    
+    python -m src.data_prep
+    python -m src.audit_data_integrity --json-out data/processed/logs/audit_report.json
     ```
 
 3.  **Training**
-    
+
     ``` bash
-    python src/train.py
-    
+    python -m src.train
     ```
 
-4.  **Inference (Streamlit)**
-    
+4.  **Evaluation**
+
+    ``` bash
+    python -m src.evaluate \
+        --model_dir models/final_hybrid_roberta_bilstm \
+        --test_csv data/processed/test.csv \
+        --checkpoint_trained_post_dedup_fix
+    ```
+
+5.  **Inference (Streamlit)**
+
     ``` bash
     streamlit run app/app.py
-    
+    ```
+
+6.  **Tests** (fast, synthetic fixtures — no model training)
+
+    ``` bash
+    pytest src/test_data_integrity.py -q
     ```
 
 -----
@@ -119,66 +132,21 @@ FactsAI/
 
 -----
 
-### ⚠️ Known Limitations & Fix History
+### 🔍 Data Integrity & Evaluation
 
-This is a learning/research project, and issues found along the way are
-disclosed deliberately rather than glossed over.
+- Datasets (ISOT + Kaggle + LIAR) are merged, cleaned, and **deduplicated with label-conflict resolution before the train/val/test split** (`src/data_prep.py`), so an identical article cannot appear in both training and evaluation data.
+- `src/audit_data_integrity.py` independently verifies this: it checks exact cross-split overlap, within-split duplicates, and label conflicts, and reports a plain **PASS / WARNING / FAIL** status — it does not print PASS unconditionally.
+- An optional MinHash-based near-duplicate check is available via `--check-near-duplicates` as a secondary diagnostic (not a guarantee of zero leakage).
+- `src/evaluate.py` computes accuracy, precision, recall, binary/macro/weighted F1, and ROC-AUC directly from the loaded checkpoint's predictions, and writes `results/metrics.json`, `results/classification_report.json`, `results/confusion_matrix.png`, `results/roc_curve.png`, and `results/evaluation_summary.md` — all generated at run time, none hardcoded.
+- `src/test_data_integrity.py` covers the above with fast synthetic fixtures (no model training required).
 
-**Fixed:**
+-----
 
-- **`from_pretrained` was missing entirely.** `src/evaluate.py` and
-  `src/predict.py` both called `RoBERTaBiLSTM.from_pretrained(model_dir)`,
-  but the class only defined `save_pretrained` — `nn.Module` doesn't
-  provide a `from_pretrained` for free, so both scripts crashed
-  immediately. `save_pretrained` now also writes a small
-  `hybrid_config.json` recording the constructor arguments
-  (`lstm_hidden_size`, `lstm_layers`, `dropout`, `use_attention`,
-  `num_labels`), and the new `from_pretrained` classmethod uses it to
-  rebuild the exact same architecture before loading weights in.
-- **Attention wasn't masking padding.** The additive attention layer in
-  `src/model.py` computed its softmax over the full sequence, including
-  padded positions, letting them absorb attention weight and dilute the
-  context vector — most noticeable on short inputs with heavy padding.
-  It now masks padded timesteps to `-inf` before the softmax (and the
-  no-attention mean-pooling fallback now also excludes padding).
-- **`config.yaml` was unused.** `src/train.py` hardcoded its own
-  hyperparameters, so editing `configs/config.yaml` had no effect on a
-  training run. `train.py` now loads the YAML and uses it for model
-  architecture, learning rate, batch size, warmup ratio, and gradient
-  clipping; explicit function arguments still override it if needed.
-- **`early_stopping_patience` was declared but never checked.** It's now
-  wired into the training loop in `src/train.py`: training stops once
-  validation loss hasn't improved for that many epochs.
-- **LIAR label-mapping bug.** `src/data_prep.py`'s LIAR loader previously
-  mapped label strings that never matched LIAR's actual format
-  (`pants-fire`/`false`/`barely-true`/`half-true`/`mostly-true`/`true`,
-  lowercase, six-way), so every LIAR row silently defaulted to label 0
-  ("real"). Fixed with an explicit binarization and a hard error on
-  unrecognized labels.
-- **Stopword removal default.** `clean_stopwords` now defaults to `false`.
-  Removing stopwords before a RoBERTa subword tokenizer is a
-  bag-of-words-era technique that degrades contextual embeddings rather
-  than helping.
+### 📝 Notes & Scope
 
-**Still open — retraining required, not a code fix:**
-
-- **Reported metrics need re-validation.** The accuracy/F1/AUC numbers in
-  `assets/classification_report.png` were produced on a 690-example,
-  perfectly class-balanced test split (345 real / 345 fake) — smaller
-  and more balanced than a merged ISOT + LIAR + Kaggle run should
-  produce. Combined with the LIAR and attention-masking fixes above,
-  **any existing checkpoint should be retrained from scratch**; the old
-  metrics don't reflect the current code.
-- **ISOT dataset leakage risk.** ISOT's real/fake split is known in the
-  NLP literature to carry systematic formatting differences (e.g.
-  wire-service dateline conventions) between subsets, independent of
-  actual content truthfulness. `clean_text` doesn't strip these, so
-  reported accuracy should be validated against an out-of-distribution
-  test set before being trusted as a measure of genuine deception
-  detection rather than superficial pattern matching.
-- **Language:** English-only.
-- **Not a fact-checking replacement.** This is a pattern-classification
-  aid, not a source of ground truth, and shouldn't be treated as one.
+- **Metrics require a fresh evaluation run.** No checkpoint or dataset is committed to this repo (see the upload strategy above), so `results/` numbers you see are only ever produced by actually running `src/evaluate.py` against a trained checkpoint.
+- **ISOT's real/fake subsets carry known formatting differences** (e.g. wire-service dateline conventions) independent of content truthfulness. Deduplication removes leakage from repeated articles but doesn't remove this dataset-level stylistic signal — treat reported accuracy as a measure of pattern classification, not verified fact-checking.
+- English-language input only.
 
 -----
 
@@ -203,6 +171,4 @@ Aspiring AI/ML Engineer | Deep Learning | NLP | LLMs | Open Source
 
 🔗 LinkedIn: https://www.linkedin.com/in/gargi-pareek-004895364/
 
-💻 GitHub: https://github.com/GargiPareek-27 
-
-
+💻 GitHub: https://github.com/GargiPareek-27

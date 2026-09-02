@@ -2,6 +2,7 @@
 """Data preprocessing for fake news detection."""
 
 import os
+import json
 import pandas as pd
 import numpy as np
 import unicodedata
@@ -185,6 +186,88 @@ def merge_datasets(
     return df
 
 
+def normalize_for_fingerprint(text: str) -> str:
+    """Lowercase + collapse-whitespace normalization used purely to decide
+    whether two rows are 'the same article', independent of case or
+    incidental spacing differences. Not used for the model input itself."""
+    if not isinstance(text, str):
+        return ""
+    return re.sub(r"\s+", " ", text.lower()).strip()
+
+
+def deduplicate_and_resolve_conflicts(
+    df: pd.DataFrame,
+    log_dir: Optional[str] = None,
+) -> pd.DataFrame:
+    """Remove exact duplicate rows and resolve label conflicts *before* any
+    split is made.
+
+    Fixes a real leakage risk: the previous pipeline merged ISOT + Kaggle +
+    LIAR and split directly, with no duplicate check anywhere. ISOT and
+    Kaggle fake-news dumps are known to share overlapping source articles,
+    so exact-duplicate rows could previously land in both the train split
+    and the validation/test splits, letting the model see test articles
+    during training and inflating reported accuracy.
+
+    Two separate problems are handled:
+    1. Exact duplicate rows (same normalized text, same label) -> keep one.
+    2. Label conflicts (same normalized text, different label across
+       sources) -> these are NOT silently dropped or averaged. They're
+       removed from the training-eligible pool and written to a log file,
+       because a conflicting label means at least one source mislabeled
+       that article, and burying that fact would hide a real data-quality
+       issue instead of fixing it.
+
+    Returns the cleaned DataFrame, ready for splitting.
+    """
+    df = df.copy()
+    df["_fp"] = df["content"].apply(normalize_for_fingerprint)
+
+    n_before = len(df)
+
+    # --- Step 1: identify label conflicts across the whole merged set ---
+    label_counts_per_fp = df.groupby("_fp")["label"].nunique()
+    conflicting_fps = set(label_counts_per_fp[label_counts_per_fp > 1].index)
+
+    conflict_rows = df[df["_fp"].isin(conflicting_fps)].drop(columns="_fp")
+    clean_df = df[~df["_fp"].isin(conflicting_fps)]
+
+    # --- Step 2: exact-duplicate collapse on the conflict-free remainder ---
+    before_dedup = len(clean_df)
+    clean_df = clean_df.drop_duplicates(subset="_fp", keep="first")
+    n_exact_dupes_removed = before_dedup - len(clean_df)
+
+    clean_df = clean_df.drop(columns="_fp").reset_index(drop=True)
+
+    n_after = len(clean_df)
+    n_conflict_rows = len(conflict_rows)
+
+    print(
+        f"[dedup] rows before={n_before}, exact duplicates removed="
+        f"{n_exact_dupes_removed}, label-conflict rows removed="
+        f"{n_conflict_rows} ({len(conflicting_fps)} distinct texts), "
+        f"rows after={n_after}"
+    )
+
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+        if len(conflict_rows) > 0:
+            conflict_rows.to_csv(
+                os.path.join(log_dir, "removed_label_conflicts.csv"), index=False
+            )
+        summary = {
+            "rows_before": n_before,
+            "exact_duplicates_removed": int(n_exact_dupes_removed),
+            "label_conflict_rows_removed": int(n_conflict_rows),
+            "label_conflict_distinct_texts": len(conflicting_fps),
+            "rows_after": n_after,
+        }
+        with open(os.path.join(log_dir, "dedup_summary.json"), "w") as f:
+            json.dump(summary, f, indent=2)
+
+    return clean_df
+
+
 def preprocess_and_split(
     raw_dir: str,
     processed_dir: str,
@@ -194,8 +277,14 @@ def preprocess_and_split(
     # stopwords (a bag-of-words-era technique) measurably degrades its
     # contextual embeddings rather than improving them. Kept configurable
     # for anyone who wants to run the comparison explicitly.
+    log_dir: Optional[str] = "data/processed/logs",
 ) -> None:
-    """Main pipeline: load, clean, merge, split, and save."""
+    """Main pipeline: load, clean, merge, DEDUPLICATE, split, and save.
+
+    Order matters: deduplication happens after cleaning/merging but
+    strictly before the train/val/test split, so no exact duplicate or
+    label-conflicting row can ever end up on both sides of a split.
+    """
     os.makedirs(processed_dir, exist_ok=True)
 
     # Load datasets
@@ -235,6 +324,11 @@ def preprocess_and_split(
     # Drop empty
     df = df[df["content"].str.len() > 5].reset_index(drop=True)
 
+    # Deduplicate + resolve label conflicts BEFORE splitting. This is the
+    # step that prevents cross-split leakage -- see
+    # deduplicate_and_resolve_conflicts() docstring for why it's here.
+    df = deduplicate_and_resolve_conflicts(df, log_dir=log_dir)
+
     # Train/val/test split
     train, temp = train_test_split(
         df,
@@ -255,3 +349,4 @@ def preprocess_and_split(
     test.to_csv(os.path.join(processed_dir, "test.csv"), index=False)
 
     print(f"Saved train={len(train)}, val={len(val)}, test={len(test)}")
+    

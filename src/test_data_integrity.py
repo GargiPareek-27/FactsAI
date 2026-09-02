@@ -1,4 +1,5 @@
-# tests/test_data_integrity.py
+# src/test_data_integrity.py
+
 import json
 import os
 import sys
@@ -11,7 +12,7 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.data_prep import deduplicate_and_resolve_conflicts, load_liar_dataset
-from scripts.audit_data_integrity import (
+from src.audit_data_integrity import (
     normalize_text,
     fingerprint,
     build_report,
@@ -171,4 +172,4 @@ def test_fingerprint_is_case_and_whitespace_insensitive():
     c = fingerprint("Something Else")
     assert a == b
     assert a != c
-  
+    
